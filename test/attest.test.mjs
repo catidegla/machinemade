@@ -157,6 +157,55 @@ test('a subject hash that does not match is caught', async (t) => {
   assert.ok(result.problems.some((p) => p.kind === 'subject'));
 });
 
+test('a count the evidence does not support is caught', async (t) => {
+  // The hashes can all check out while the numbers beside them are a lie, and
+  // the numbers are the part somebody quotes in a procurement answer. Nought
+  // percent machine over untouched evidence is exactly the statement this
+  // format exists to make impossible, so verify recomputes rather than reads.
+  const { r, commit } = await declared(t);
+  const statement = await attest(commit, { cwd: r.dir });
+
+  statement.predicate.files[0].machine = 0;
+  statement.predicate.totals.machine = 0;
+
+  const result = await verify(statement, { cwd: r.dir });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((p) => p.kind === 'counts'));
+  // Both the file line and the total, because a reader may be looking at
+  // either one.
+  assert.equal(result.problems.filter((p) => p.kind === 'counts').length, 2);
+});
+
+test('a count is recomputed from the evidence, not from git notes', async (t) => {
+  // A verifier gets the tree and the statement. Requiring the notes as well
+  // would mean the check only works for people who already have what the
+  // statement was built from.
+  const { r, commit } = await declared(t);
+  const statement = await attest(commit, { cwd: r.dir });
+
+  statement.predicate.files[0].hand = 99;
+
+  const result = await verify(statement, { cwd: r.dir });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((p) => p.kind === 'counts' && p.field === 'hand'));
+});
+
+test('overlapping declarations count a line once', async (t) => {
+  const { r, commit } = await declared(t);
+  const statement = await attest(commit, { cwd: r.dir });
+  const file = statement.predicate.files[0];
+
+  // The same lines declared twice. Counting them twice would make a statement
+  // fail its own arithmetic for a reason that is not tampering.
+  file.evidence.push({ ...file.evidence[0] });
+
+  const result = await verify(statement, { cwd: r.dir });
+
+  assert.ok(!result.problems.some((p) => p.kind === 'counts'));
+});
+
 test('a statement naming a file the tree does not have is caught', async (t) => {
   const { r, commit } = await declared(t);
   const statement = await attest(commit, { cwd: r.dir });

@@ -54,3 +54,71 @@ jobs:
           node --test test/attest.test.mjs
           node --test --test-name-pattern "survives lines being" test/attribute.test.mjs
           node --test --test-name-pattern "never guessed at|over the whole file" test/attribute.test.mjs
+
+  action:
+    name: The action runs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Declare some lines and commit them
+        run: |
+          git config user.name ci
+          git config user.email ci@example.com
+
+          mkdir -p ci-fixture
+          printf 'const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\n' > ci-fixture/sample.js
+          git add ci-fixture/sample.js
+          git commit -q -m "a file to describe"
+
+          node bin/machinemade.mjs mark ci-fixture/sample.js --lines 1-2 --generator ci --model none
+          node bin/machinemade.mjs record
+
+      - id: attest
+        uses: ./
+        with:
+          path: ci-fixture
+          attestation: ci.attestation.json
+
+      - name: It counted the declared lines and the statement verifies
+        run: |
+          [ "${{ steps.attest.outputs.machine }}" = "2" ] || { echo "expected 2 machine lines, got ${{ steps.attest.outputs.machine }}"; exit 1; }
+          [ "${{ steps.attest.outputs.unknown }}" = "2" ] || { echo "expected 2 undeclared lines, got ${{ steps.attest.outputs.unknown }}"; exit 1; }
+          test -f ci.attestation.json || { echo "no statement was written"; exit 1; }
+
+      # The claim is that somebody who does not trust the tool can check it, so
+      # the check has to notice both kinds of lie: a hash that no longer
+      # describes the tree, and a count the evidence does not support.
+      - name: A statement whose counts were edited is refused
+        run: |
+          node -e '
+            const fs = require("fs");
+            const s = JSON.parse(fs.readFileSync("ci.attestation.json", "utf8"));
+            s.predicate.files[0].machine = 0;
+            s.predicate.totals.machine = 0;
+            fs.writeFileSync("counts.json", JSON.stringify(s));
+          '
+          if node bin/machinemade.mjs verify counts.json; then
+            echo "verify blessed a statement claiming none of the declared lines were machine made"
+            exit 1
+          fi
+
+      - name: A statement whose hashes were edited is refused
+        run: |
+          node -e '
+            const fs = require("fs");
+            const s = JSON.parse(fs.readFileSync("ci.attestation.json", "utf8"));
+            s.subject[0].digest.gitBlob = "0".repeat(40);
+            fs.writeFileSync("hashes.json", JSON.stringify(s));
+          '
+          if node bin/machinemade.mjs verify hashes.json; then
+            echo "verify accepted a statement that no longer matches the repository"
+            exit 1
+          fi
+          echo "verify refuses both kinds of tampering"

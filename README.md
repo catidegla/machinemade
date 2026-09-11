@@ -109,6 +109,19 @@ Marks stage until the commit exists, which is the only moment both the claim and
 
 ## In CI
 
+```yaml
+- uses: catidegla/machinemade@v0.1.0
+  with:
+    attestation: machinemade.json
+```
+
+It fetches the notes ref first, which a normal checkout does not carry. Without
+that step the tool finds no declarations, reports everything as undeclared and
+exits clean, which reads exactly like a repository nobody has marked.
+
+It then verifies the statement it just wrote, against the repository, the way a
+consumer would. A statement that does not check out never leaves the build.
+
 The realistic policy is not "use less AI". It is **declare what you use**:
 
 ```yaml

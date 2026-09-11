@@ -31,7 +31,7 @@
 import { createHash } from 'node:crypto';
 
 import { resolve, filesAt, fileAt, readNote, blame, git } from './git.mjs';
-import { Origin } from './origin.mjs';
+import { Origin, strongest } from './origin.mjs';
 import { declarationsFor, hashLines } from './declare.mjs';
 import { attributeFile, tally, mergeTallies, byGenerator } from './attribute.mjs';
 
@@ -256,11 +256,83 @@ export async function verify(statement, { cwd = process.cwd() } = {}) {
     }
   }
 
+  // The counts, recomputed rather than read.
+  //
+  // Everything above proves the declared lines are the lines that are there.
+  // None of it proves the numbers printed beside them are the numbers those
+  // declarations produce, and the numbers are what somebody quotes. A
+  // statement whose hashes all check out and whose totals say nought percent
+  // machine would otherwise verify cleanly, which is precisely the lie this
+  // format exists to make impossible.
+  //
+  // Recomputed from the evidence in the statement rather than from git notes,
+  // so a verifier needs the tree and nothing else. The notes are how the
+  // declarations got here; they are not required to check the arithmetic.
+  const counted = countsFromEvidence(statement);
+
+  for (const [path, expected] of counted.files) {
+    const claimed = (statement.predicate?.files ?? []).find((f) => f.path === path);
+    if (!claimed) continue;
+
+    for (const field of ['machine', 'hand']) {
+      if (claimed[field] !== expected[field]) {
+        note('counts', `${path} claims ${claimed[field]} ${field} line(s) and its own evidence declares ${expected[field]}`, {
+          path, field, claimed: claimed[field], actual: expected[field],
+        });
+      }
+    }
+  }
+
+  const totals = statement.predicate?.totals;
+
+  for (const field of ['machine', 'hand']) {
+    if (totals && totals[field] !== counted.totals[field]) {
+      note('counts', `the statement totals ${totals[field]} ${field} line(s) and its own evidence declares ${counted.totals[field]}`, {
+        field, claimed: totals[field], actual: counted.totals[field],
+      });
+    }
+  }
+
   return {
     ok: problems.length === 0,
     problems,
-    checked: { subjects, evidence: evidenceChecked },
+    checked: { subjects, evidence: evidenceChecked, counts: counted.files.size },
   };
+}
+
+/**
+ * What the declarations in a statement add up to, ignoring what it says they do.
+ *
+ * Overlapping ranges are resolved the way the attributor resolves them, so a
+ * line claimed twice is counted once and the stronger claim wins.
+ */
+function countsFromEvidence(statement) {
+  const files = new Map();
+  const totals = { [Origin.Machine]: 0, [Origin.Hand]: 0 };
+
+  for (const file of statement.predicate?.files ?? []) {
+    const lines = new Map();
+
+    for (const evidence of file.evidence ?? []) {
+      for (const [from, to] of evidence.ranges ?? []) {
+        for (let line = from; line <= to; line += 1) {
+          lines.set(line, strongest(lines.get(line) ?? Origin.Unknown, evidence.origin));
+        }
+      }
+    }
+
+    const counts = { machine: 0, hand: 0 };
+    for (const origin of lines.values()) {
+      if (origin === Origin.Machine) counts.machine += 1;
+      if (origin === Origin.Hand) counts.hand += 1;
+    }
+
+    files.set(file.path, counts);
+    totals[Origin.Machine] += counts.machine;
+    totals[Origin.Hand] += counts.hand;
+  }
+
+  return { files, totals: { machine: totals[Origin.Machine], hand: totals[Origin.Hand] } };
 }
 
 /**

@@ -1,0 +1,111 @@
+name: machinemade
+description: Publish and check line level AI authorship for a commit, from declarations in git notes.
+author: Christ-loisele Atidegla
+
+branding:
+  icon: git-commit
+  color: orange
+
+inputs:
+  ref:
+    description: Which commit to describe.
+    default: ''
+  path:
+    description: Narrow the report to paths under this prefix.
+    default: ''
+  attestation:
+    description: Where to write the in-toto statement. Upload it as an artifact, or attach it to a release, and somebody who does not trust you can check it.
+    default: machinemade.json
+  require-declared:
+    description: >-
+      Fail when more than this percent of lines carry no declaration. Leave
+      empty to report without a floor, which is the honest setting until a
+      repository has been marked for a while.
+    default: ''
+  verify:
+    description: Re-derive the statement from the repository after writing it. This is what a consumer would run, so running it here means a broken statement never leaves the build.
+    default: 'true'
+  summary:
+    description: Write the totals to the job summary.
+    default: 'true'
+
+outputs:
+  attestation:
+    description: Path to the in-toto statement.
+    value: ${{ steps.attest.outputs.attestation }}
+  machine:
+    description: Lines declared machine made.
+    value: ${{ steps.attest.outputs.machine }}
+  unknown:
+    description: Lines carrying no declaration, which is usually the largest number and is not a failure.
+    value: ${{ steps.attest.outputs.unknown }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Fetch the declarations
+      shell: bash
+      run: |
+        # Notes live on their own ref and do not travel with a normal fetch.
+        # Without this the tool finds nothing, reports zero declarations and
+        # exits clean, which reads exactly like a repository nobody has marked.
+        git fetch --no-tags origin '+refs/notes/machinemade:refs/notes/machinemade' 2>/dev/null || true
+
+        if ! git rev-parse --verify --quiet refs/notes/machinemade > /dev/null; then
+          echo "::warning::no machinemade notes on this remote, so every line will read as undeclared"
+        fi
+
+    - id: attest
+      shell: bash
+      run: |
+        ref="${{ inputs.ref }}"
+        if [ -z "$ref" ]; then ref="${{ github.event.pull_request.head.sha }}"; fi
+        if [ -z "$ref" ]; then ref="$GITHUB_SHA"; fi
+
+        args=(--ref "$ref" --out "${{ inputs.attestation }}")
+        if [ -n "${{ inputs.path }}" ]; then args+=(--path "${{ inputs.path }}"); fi
+        if [ -n "${{ inputs.require-declared }}" ]; then args+=(--require-declared "${{ inputs.require-declared }}"); fi
+
+        set +e
+        node "${{ github.action_path }}/bin/machinemade.mjs" attest "${args[@]}"
+        code=$?
+        set -e
+
+        echo "attestation=${{ inputs.attestation }}" >> "$GITHUB_OUTPUT"
+
+        if [ "${{ inputs.verify }}" = "true" ] && [ -f "${{ inputs.attestation }}" ]; then
+          # The statement carries blob hashes and line digests precisely so it
+          # can be checked by somebody who does not trust the tool that wrote
+          # it. Checking it here means a broken one never leaves the build.
+          node "${{ github.action_path }}/bin/machinemade.mjs" verify "${{ inputs.attestation }}"
+        fi
+
+        report=$(node "${{ github.action_path }}/bin/machinemade.mjs" report --ref "$ref" --json)
+        echo "$report" > machinemade.report.json
+
+        machine=$(node -p "JSON.parse(require('fs').readFileSync('machinemade.report.json','utf8')).totals.machine")
+        unknown=$(node -p "JSON.parse(require('fs').readFileSync('machinemade.report.json','utf8')).totals.unknown")
+        echo "machine=$machine" >> "$GITHUB_OUTPUT"
+        echo "unknown=$unknown" >> "$GITHUB_OUTPUT"
+
+        if [ "${{ inputs.summary }}" = "true" ]; then
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("machinemade.report.json", "utf8"));
+            const t = r.totals;
+            const pct = (n) => (t.total ? ((n / t.total) * 100).toFixed(1) : "0.0");
+            const lines = ["### machinemade", ""];
+            lines.push(`| | Lines | Share |`, `| :--- | ---: | ---: |`);
+            lines.push(`| machine | ${t.machine} | ${pct(t.machine)}% |`);
+            lines.push(`| hand | ${t.hand} | ${pct(t.hand)}% |`);
+            lines.push(`| unknown | ${t.unknown} | ${pct(t.unknown)}% |`);
+            lines.push("", "Declared, never inferred. Unknown means nobody said, which is not the same as hand written.");
+            console.log(lines.join("\n"));
+          ' >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        exit $code
