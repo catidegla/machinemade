@@ -110,7 +110,7 @@ Marks stage until the commit exists, which is the only moment both the claim and
 ## In CI
 
 ```yaml
-- uses: catidegla/machinemade@v0.1.0
+- uses: catidegla/machinemade@v0.2.0
   with:
     attestation: machinemade.json
 ```

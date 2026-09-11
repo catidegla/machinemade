@@ -1,6 +1,6 @@
 {
   "name": "@catidegla/machinemade",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Which lines a machine wrote, recorded in git notes and attestable to somebody who does not trust you. Declarations only, never inference. Zero dependencies.",
   "type": "module",
   "bin": { "machinemade": "bin/machinemade.mjs" },
