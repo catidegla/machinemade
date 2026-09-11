@@ -1,15 +1,27 @@
 name: Release
 
+# Manual until a trusted publisher exists on npm.
+#
+# The tag trigger is commented out rather than deleted, because it is the
+# thing to turn back on and the reason it is off should be next to it. Until
+# the package has a trusted publisher configured at
+# npmjs.com -> package -> Settings -> Trusted Publisher, the OIDC token below
+# authenticates as nobody and npm answers a publish with 404 rather than 403,
+# to avoid telling an anonymous caller which packages exist. That 404 reads
+# exactly like a missing package and is not one.
+#
+# Turning the tag trigger on before then means every `git tag` fails a
+# workflow and fills somebody's notifications with red, which is what happened
+# the first time.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      ref:
+        description: The tag to publish, for example v0.1.0
+        required: true
+  # push:
+  #   tags: ['v*']
 
-# id-token is the whole mechanism. GitHub mints a short lived OIDC token for
-# this specific workflow in this specific repository, npm checks it against the
-# trusted publisher configured on the package, and no long lived credential
-# exists anywhere to be stolen. There is nothing in secrets to leak and nothing
-# to rotate.
 permissions:
   contents: read
   id-token: write
@@ -20,6 +32,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -32,19 +46,42 @@ jobs:
         run: npm test
 
       - name: The tag and the manifest have to agree
+        id: version
         shell: bash
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          ref="${{ inputs.ref || github.ref_name }}"
+          tag="${ref#v}"
           manifest=$(node -p "require('./package.json').version")
+
           if [ "$tag" != "$manifest" ]; then
             echo "tag v$tag does not match package.json $manifest"
             exit 1
           fi
-          echo "publishing $manifest"
 
-      # --provenance is free here and only here: it records which workflow, in
-      # which repository, at which commit built this tarball, and npm shows it
-      # on the package page. It needs the OIDC token above, which is why it
-      # cannot be done from a laptop.
+          name=$(node -p "require('./package.json').name")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$manifest" >> "$GITHUB_OUTPUT"
+
+      # A release workflow that tries to republish an existing version fails
+      # every time it is re-run, which teaches people that red is normal here.
+      # Already published is a finished job, not an error.
+      - name: Skip a version that is already on the registry
+        id: exists
+        shell: bash
+        run: |
+          name="${{ steps.version.outputs.name }}"
+          version="${{ steps.version.outputs.version }}"
+
+          if npm view "$name@$version" version --loglevel=error >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "$name@$version is already published, nothing to do"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --provenance records which workflow, in which repository, at which
+      # commit built this tarball, and npm shows it as a verified badge. It
+      # needs the OIDC token above, so it is something a laptop cannot produce.
       - name: Publish
+        if: steps.exists.outputs.already == 'false'
         run: npm publish --provenance --access public
