@@ -83,6 +83,9 @@ jobs:
       - id: attest
         uses: ./
         with:
+          # HEAD, not the event sha: the step above made a commit, and the
+          # event still points at what was checked out.
+          ref: HEAD
           path: ci-fixture
           attestation: ci.attestation.json
 

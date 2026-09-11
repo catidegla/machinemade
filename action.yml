@@ -85,7 +85,13 @@ runs:
           node "${{ github.action_path }}/bin/machinemade.mjs" verify "${{ inputs.attestation }}"
         fi
 
-        report=$(node "${{ github.action_path }}/bin/machinemade.mjs" report --ref "$ref" --json)
+        # The same narrowing as the attestation. Without it the outputs
+        # describe the whole tree while the statement describes a subset, and
+        # a workflow gating on them is reading numbers about other code.
+        report_args=(report --ref "$ref" --json)
+        if [ -n "${{ inputs.path }}" ]; then report_args+=(--path "${{ inputs.path }}"); fi
+
+        report=$(node "${{ github.action_path }}/bin/machinemade.mjs" "${report_args[@]}")
         echo "$report" > machinemade.report.json
 
         machine=$(node -p "JSON.parse(require('fs').readFileSync('machinemade.report.json','utf8')).totals.machine")
