@@ -1,0 +1,8 @@
+/node_modules/
+*.tgz
+machinemade.json
+statement.json
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

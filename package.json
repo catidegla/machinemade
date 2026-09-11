@@ -1,0 +1,29 @@
+{
+  "name": "@catidegla/machinemade",
+  "version": "0.1.0",
+  "description": "Which lines a machine wrote, recorded in git notes and attestable to somebody who does not trust you. Declarations only, never inference. Zero dependencies.",
+  "type": "module",
+  "bin": { "machinemade": "bin/machinemade.mjs" },
+  "exports": {
+    ".": "./src/attest.mjs",
+    "./origin": "./src/origin.mjs",
+    "./declare": "./src/declare.mjs",
+    "./attribute": "./src/attribute.mjs",
+    "./git": "./src/git.mjs"
+  },
+  "files": ["bin", "src", "README.md", "LICENSE"],
+  "engines": { "node": ">=20.0.0" },
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "test": "node --test test/origin.test.mjs test/attribute.test.mjs test/attest.test.mjs test/cli.test.mjs"
+  },
+  "keywords": [
+    "ai-generated-code", "provenance", "attestation", "git-notes", "in-toto",
+    "compliance", "audit", "supply-chain", "authorship", "eu-ai-act", "slsa"
+  ],
+  "author": "Christ-loisele Atidegla",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/catidegla/machinemade.git" },
+  "homepage": "https://github.com/catidegla/machinemade#readme",
+  "bugs": { "url": "https://github.com/catidegla/machinemade/issues" }
+}

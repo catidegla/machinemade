@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['20.x', '22.x', '24.x']
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # Nothing to install. The dependency count in the README is a claim, and
+      # a lockfile appearing is the proof that it stopped being true.
+      - name: No dependencies were added
+        shell: bash
+        run: |
+          test ! -f package-lock.json || (echo "a lockfile appeared" && exit 1)
+          node -e "const p=require('./package.json'); if (p.dependencies || p.devDependencies) { console.error('dependencies appeared'); process.exit(1); }"
+
+      - name: Test
+        run: npm test
+
+  honesty:
+    name: The claims that would make it useless if false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      # Given their own job rather than blended into a matrix. If the blob hash
+      # stops agreeing with git, every attestation reads as tampered. If a
+      # declaration stops following its code, the tool is silently wrong from
+      # the first edit. If undeclared lines start counting as human, the number
+      # becomes the lie this was built to avoid.
+      - name: Hashes agree with git, declarations follow their code, unknown stays unknown
+        run: |
+          node --test test/attest.test.mjs
+          node --test --test-name-pattern "survives lines being" test/attribute.test.mjs
+          node --test --test-name-pattern "never guessed at|over the whole file" test/attribute.test.mjs
