@@ -67,6 +67,37 @@ export async function filesAt(ref, cwd = process.cwd()) {
   return out.split('\0').filter(Boolean);
 }
 
+/**
+ * The path as git names it, asked of git rather than computed.
+ *
+ * Deriving this by taking the difference between the working directory and
+ * the repository root looks equivalent and is not. On Windows the two can be
+ * spelled differently for the same directory: git reports the long name while
+ * the environment hands you the 8.3 short one, so `C:/Users/runneradmin/...`
+ * and `C:\Users\RUNNER~1\...` are one place and subtracting one from the other
+ * yields a path made of `..` segments. Every declaration then files itself
+ * under a name no blame lookup will ever match, and the tool records nothing
+ * while reporting success.
+ *
+ * ls-files answers in git's own vocabulary, which is the vocabulary the notes
+ * and blame both use.
+ */
+export async function toRepoPath(path, cwd = process.cwd()) {
+  for (const args of [
+    ['ls-files', '--full-name', '-z', '--', path],
+    ['ls-files', '--others', '--full-name', '-z', '--', path],
+  ]) {
+    try {
+      const out = (await git(args, { cwd })).split('\0').filter(Boolean);
+      if (out.length > 0) return out[0];
+    } catch {
+      // Fall through to the next attempt, then to the caller's own fallback.
+    }
+  }
+
+  return null;
+}
+
 /** The blob at a path and ref, or null when the path is not there. */
 export async function fileAt(ref, path, cwd = process.cwd()) {
   try {

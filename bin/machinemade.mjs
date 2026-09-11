@@ -10,7 +10,7 @@ import { readFile, writeFile, chmod } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve as resolvePath } from 'node:path';
 
-import { isRepository, repoRoot, resolve, headCommit, filesAt, fileAt, readNote, writeNote, notedCommits, REFSPECS, NOTES_REF } from '../src/git.mjs';
+import { isRepository, repoRoot, resolve, headCommit, filesAt, fileAt, readNote, writeNote, notedCommits, toRepoPath, REFSPECS, NOTES_REF } from '../src/git.mjs';
 import { Origin } from '../src/origin.mjs';
 import { declaration, addPending, readPending, clearPending, notePayload, hashLines, PENDING } from '../src/declare.mjs';
 import { attributeFile, tally, mergeTallies, byGenerator, runsFor, sourceOf } from '../src/attribute.mjs';
@@ -141,7 +141,14 @@ command -v machinemade >/dev/null 2>&1 && machinemade record --quiet || true
       process.exit(EXIT.USAGE);
     }
 
-    const relativePath = relative(root, resolvePath(process.cwd(), path)).replace(/\\/g, '/');
+    // Asked of git rather than computed from the two paths. On Windows the
+    // same directory can be spelled two ways, the long name and the 8.3 short
+    // one, and subtracting one from the other files the declaration under a
+    // name nothing will ever look up: the tool records nothing and says it
+    // worked. git ls-files answers in the vocabulary blame and notes share.
+    const relativePath = await toRepoPath(path)
+      ?? relative(root, resolvePath(process.cwd(), path)).replace(/\\/g, '/');
+
     const ranges = parseLines(value('lines'));
 
     if (ranges.length === 0) {
