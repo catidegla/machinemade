@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# id-token is the whole mechanism. GitHub mints a short lived OIDC token for
+# this specific workflow in this specific repository, npm checks it against the
+# trusted publisher configured on the package, and no long lived credential
+# exists anywhere to be stolen. There is nothing in secrets to leak and nothing
+# to rotate.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Publishing a broken release is worse than publishing late, and a
+      # version on npm cannot be taken back cleanly.
+      - name: Test before anything leaves this machine
+        run: npm test
+
+      - name: The tag and the manifest have to agree
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$manifest" ]; then
+            echo "tag v$tag does not match package.json $manifest"
+            exit 1
+          fi
+          echo "publishing $manifest"
+
+      # --provenance is free here and only here: it records which workflow, in
+      # which repository, at which commit built this tarball, and npm shows it
+      # on the package page. It needs the OIDC token above, which is why it
+      # cannot be done from a laptop.
+      - name: Publish
+        run: npm publish --provenance --access public
