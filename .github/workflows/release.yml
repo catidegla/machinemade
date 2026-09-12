@@ -38,7 +38,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.x'
-          registry-url: 'https://registry.npmjs.org'
+
+      # No registry-url on purpose. Given one, setup-node writes an .npmrc
+      # holding `_authToken=${NODE_AUTH_TOKEN}`, and npm then sends that as the
+      # credential. With no such secret set it sends an empty one, the registry
+      # treats the request as anonymous, and answers a publish with 404 rather
+      # than 401 so as not to tell a stranger which packages exist. The token
+      # exchange below never gets a chance to run, and the 404 reads exactly
+      # like a package name that does not exist.
+      #
+      # The OIDC exchange landed in npm 11.5.1 and Node 22 ships 10.x, so the
+      # bundled npm silently has no idea trusted publishing exists.
+      - name: An npm that can exchange the OIDC token
+        run: npm install --global npm@latest
 
       # Publishing a broken release is worse than publishing late, and a
       # version on npm cannot be taken back cleanly.
